@@ -639,18 +639,16 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                     for j in range(i + 1, num_rows):
                         if table_array_projecting[j, 0]:
                             if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
-                                if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
-                                    k = j
-                                    table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
-                                    if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
-                                        indentation_level += 1
-                                        indentation_string = '-' * indentation_level
+                                k = j
+                                table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+                                if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
+                                    indentation_level += 1
+                                    indentation_string = '-' * indentation_level
                             else:
                                 indentation_level = 1
                                 sep = sep*sep_factor
                                 break
                         else:
-                            print(table_array[j,0], table_array_bbox[j,0], t_bbox, sep)
                             if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
                                 k = j
                                 sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor
