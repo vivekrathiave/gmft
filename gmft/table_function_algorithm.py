@@ -620,45 +620,52 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
             table_array[row_num, column_num] = text
     
     # Indent cells that are projected or detect based on spacing differences
-    k=-1
+    k = -1
     sep_factor = 0.8
+    indentation_string = ''
+    indentation_level = 1
+
     for i in range(num_rows):
-        if(i>k):
+        if i > k:
             if table_array_projecting[i, 0] == True:
                 t_bbox = table_array_bbox[i, 0]
-                if(i<num_rows-1 and t_bbox is not None):
-                    indentation_string= '-'
+                if i < num_rows - 1 and t_bbox is not None:
+                    indentation_level = 1
+                    indentation_string = '-' * indentation_level
                     sep = 5.0
-                    for j in range(i+1, num_rows):
+                    for j in range(i + 1, num_rows):
                         if table_array_projecting[j, 0] == True:
-                            if j < num_rows -1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + 5:
-
+                            if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
                                 if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
-                                    k=j
+                                    k = j
                                     table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
                                     # if condition to account for false projected row detected
-                                    if table_array_bbox[j+1, 0][0] - t_bbox[0] > sep*2:
-                                        indentation_string = indentation_string+'-'                        
+                                    if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
+                                        indentation_level += 1
+                                        indentation_string = '-' * indentation_level
                             else:
+                                indentation_level = 1
                                 break
                         else:
                             if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
-                                k=j
-                                sep = (table_array_bbox[j, 0][0] - t_bbox[0])*sep_factor
+                                k = j
+                                sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor
                                 table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
-            elif i < num_rows -1 and table_array_bbox[i, 0] is not None and table_array_bbox[i+1, 0] is not None and table_array_bbox[i, 0][0] + 5 < table_array_bbox[i+1, 0][0]:                
-                indentation_string= '-'
-                sep = table_array_bbox[i+1, 0][0] - table_array_bbox[i, 0][0]
-                print(sep)
-                for j in range(i+1, num_rows):
-                    if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > table_array_bbox[i, 0][0] + sep*sep_factor:
-                        if table_array_bbox[j, 0][0] - table_array_bbox[i, 0][0] > sep*sep_factor*2:
-                            indentation_string= '--'
+            elif i < num_rows - 1 and table_array_bbox[i, 0] is not None and table_array_bbox[i + 1, 0] is not None and table_array_bbox[i, 0][0] + 5 < table_array_bbox[i + 1, 0][0]:
+                
+                indentation_string = '-' * indentation_level
+                sep = table_array_bbox[i + 1, 0][0] - table_array_bbox[i, 0][0]
+                for j in range(i + 1, num_rows):
+                    if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > table_array_bbox[i, 0][0] + sep * sep_factor:
+                        if table_array_bbox[j, 0][0] - table_array_bbox[i, 0][0] > sep * sep_factor * 2:
+                            indentation_level += 1
+                            indentation_string = '-' * indentation_level
                         else:
-                            indentation_string= '-'
+                            indentation_string = '-' * indentation_level
                         table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
-                        k=j
+                        k = j
                     else:
+                        indentation_level = 1
                         break
 
 
