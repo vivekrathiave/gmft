@@ -618,41 +618,44 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
             table_array[row_num, column_num] += ' ' + text
         else:
             table_array[row_num, column_num] = text
-    
-    # Indent cells that are projected or detect based on spacing differences
+  
+    table_array = indent_cells(table_array, table_array_projecting, table_array_bbox)
+    return table_array
+
+def indent_cells(table_array, table_array_projecting, table_array_bbox):
+    num_rows, num_columns = table_array.shape
     k = -1
     sep_factor = 0.8
-    indentation_string = ''
     indentation_level = 1
+    sep = 5.0
 
     for i in range(num_rows):
         if i > k:
-            if table_array_projecting[i, 0] == True:
+            if table_array_projecting[i, 0]:
                 t_bbox = table_array_bbox[i, 0]
                 if i < num_rows - 1 and t_bbox is not None:
                     indentation_level = 1
                     indentation_string = '-' * indentation_level
-                    sep = 5.0
                     for j in range(i + 1, num_rows):
-                        if table_array_projecting[j, 0] == True:
+                        if table_array_projecting[j, 0]:
                             if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
                                 if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
                                     k = j
-                                    table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
-                                    # if condition to account for false projected row detected
+                                    table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
                                     if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
                                         indentation_level += 1
                                         indentation_string = '-' * indentation_level
                             else:
                                 indentation_level = 1
+                                sep = sep*sep_factor
                                 break
                         else:
+                            print(table_array[j,0], table_array_bbox[j,0], t_bbox, sep)
                             if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
                                 k = j
                                 sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor
-                                table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
-            elif i < num_rows - 1 and table_array_bbox[i, 0] is not None and table_array_bbox[i + 1, 0] is not None and table_array_bbox[i, 0][0] + 5 < table_array_bbox[i + 1, 0][0]:
-                
+                                table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+            elif i < num_rows - 1 and table_array_bbox[i, 0] is not None and table_array_bbox[i + 1, 0] is not None and table_array_bbox[i, 0][0] + sep < table_array_bbox[i + 1, 0][0]:
                 indentation_string = '-' * indentation_level
                 sep = table_array_bbox[i + 1, 0][0] - table_array_bbox[i, 0][0]
                 for j in range(i + 1, num_rows):
@@ -662,15 +665,13 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
                             indentation_string = '-' * indentation_level
                         else:
                             indentation_string = '-' * indentation_level
-                        table_array[j, 0] = indentation_string + ' ' + table_array[j, 0]
+                        table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
                         k = j
                     else:
                         indentation_level = 1
+                        sep = sep*sep_factor
                         break
-
-
     return table_array
-
 
 def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
     """
@@ -915,7 +916,7 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
         is_projecting = [x in projecting_indices for x in range(num_rows)]
         # remove the header_indices
         # TODO this could be made O(n)
-        # table._df.insert(num_columns, 'is_projecting_row', is_projecting)
+        table._df.insert(num_columns, 'is_projecting_row', is_projecting)
         is_projecting = [x for i, x in enumerate(is_projecting) if i not in header_indices]
         table._projecting_indices = [i for i, x in enumerate(is_projecting) if x]
     
