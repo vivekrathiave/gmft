@@ -309,10 +309,10 @@ def _find_all_columns_for_box(sorted_columns, bbox, threshold=0, _iob=_iob_for_c
         i += 1
     return columns
 
-def _find_best_row_for_text(sorted_rows, textbox):
+def _find_best_row_for_text(sorted_rows, textbox, sorted_projecting=None):
     row_num = None
     row_max_iob = 0
-    
+    is_projected_row = False
     _, ymin, _, ymax = textbox
     
     # with binary search, we can only look at filtered subsets
@@ -325,12 +325,15 @@ def _find_best_row_for_text(sorted_rows, textbox):
         if iob_score > row_max_iob:
             row_max_iob = iob_score
             row_num = i
+            if(sorted_projecting is not None):
+                if any(_iob(row['bbox'], proj['bbox']) > 0.7 for proj in sorted_projecting):
+                    is_projected_row = True
         # we may break early when the row is below the textbox
         # this assumes that row_min and row_max are roughly 
         if ymax < row['bbox'][1]: # ymax < row_min
             break
         i += 1
-    return row_num, row_max_iob
+    return row_num, row_max_iob, is_projected_row
 
 def _find_best_column_for_text(sorted_columns, textbox):
     column_num = None
@@ -523,7 +526,7 @@ def _semantic_spanning_fill(table_array, sorted_hier_top_headers, sorted_monosem
 
 def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, float, str], None, None], 
                           config: TATRFormatConfig, 
-                          sorted_rows: list[dict], sorted_columns: list[dict], 
+                          sorted_rows: list[dict], sorted_columns: list[dict], sorted_projecting: list[dict], 
                           outliers: dict[str, bool], 
                         #   large_table_guess: bool, 
                           row_means: list[list[float]]):
@@ -535,13 +538,15 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
     num_rows = len(sorted_rows)
     num_columns = len(sorted_columns)
     table_array = np.empty([num_rows, num_columns], dtype="object")
+    table_array_bbox = np.empty([num_rows, num_columns], dtype="object")
+    table_array_projecting = np.empty([num_rows, num_columns], dtype="bool")
 
     for xmin, ymin, xmax, ymax, text in text_positions:
         
         textbox = (xmin, ymin, xmax, ymax)
 
         # 5. let row_num be row with max iob
-        row_num, row_max_iob = _find_best_row_for_text(sorted_rows, textbox)
+        row_num, row_max_iob, is_projecting_row = _find_best_row_for_text(sorted_rows, textbox, sorted_projecting=sorted_projecting)
         
         # 6. determine if is header
             
@@ -603,15 +608,70 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
         if row_means is not None:
             row_median = (ymax + ymin) / 2
             row_means[row_num].append(row_median)
-            
+
+        if table_array_bbox[row_num, column_num] is None:
+            table_array_bbox[row_num, column_num] = textbox
+        table_array_projecting[row_num, column_num] = is_projecting_row
+
         
         if table_array[row_num, column_num] is not None:
             table_array[row_num, column_num] += ' ' + text
         else:
             table_array[row_num, column_num] = text
-    
+  
+    table_array = indent_cells(table_array, table_array_projecting, table_array_bbox)
     return table_array
 
+def indent_cells(table_array, table_array_projecting, table_array_bbox):
+    num_rows, num_columns = table_array.shape
+    k = -1
+    sep_factor = 0.8
+    indentation_level = 1
+    sep = 5.0
+
+    for i in range(num_rows):
+        if i > k:
+            if table_array_projecting[i, 0]:
+                t_bbox = table_array_bbox[i, 0]
+                if i < num_rows - 1 and t_bbox is not None:
+                    indentation_level = 1
+                    indentation_string = '-' * indentation_level
+                    for j in range(i + 1, num_rows):
+                        if table_array_projecting[j, 0]:
+                            if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
+                                if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
+                                    k = j
+                                    table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+                                    if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
+                                        indentation_level += 1
+                                        indentation_string = '-' * indentation_level
+                            else:
+                                indentation_level = 1
+                                sep = sep*sep_factor
+                                break
+                        else:
+                            print(table_array[j,0], table_array_bbox[j,0], t_bbox, sep)
+                            if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
+                                k = j
+                                sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor
+                                table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+            elif i < num_rows - 1 and table_array_bbox[i, 0] is not None and table_array_bbox[i + 1, 0] is not None and table_array_bbox[i, 0][0] + sep < table_array_bbox[i + 1, 0][0]:
+                indentation_string = '-' * indentation_level
+                sep = table_array_bbox[i + 1, 0][0] - table_array_bbox[i, 0][0]
+                for j in range(i + 1, num_rows):
+                    if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > table_array_bbox[i, 0][0] + sep * sep_factor:
+                        if table_array_bbox[j, 0][0] - table_array_bbox[i, 0][0] > sep * sep_factor * 2:
+                            indentation_level += 1
+                            indentation_string = '-' * indentation_level
+                        else:
+                            indentation_string = '-' * indentation_level
+                        table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+                        k = j
+                    else:
+                        indentation_level = 1
+                        sep = sep*sep_factor
+                        break
+    return table_array
 
 def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
     """
@@ -794,7 +854,7 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
 
 
     table_array = _fill_using_partitions(table.text_positions(remove_table_offset=True), config=config, 
-                                        sorted_rows=sorted_rows, sorted_columns=sorted_columns, 
+                                        sorted_rows=sorted_rows, sorted_columns=sorted_columns,  sorted_projecting=sorted_projecting,
                                         outliers=outliers, row_means=row_means)
     
     
@@ -856,6 +916,7 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
         is_projecting = [x in projecting_indices for x in range(num_rows)]
         # remove the header_indices
         # TODO this could be made O(n)
+        # table._df.insert(num_columns, 'is_projecting_row', is_projecting)
         is_projecting = [x for i, x in enumerate(is_projecting) if i not in header_indices]
         table._projecting_indices = [i for i, x in enumerate(is_projecting) if x]
     
