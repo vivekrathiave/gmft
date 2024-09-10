@@ -916,7 +916,7 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
         is_projecting = [x in projecting_indices for x in range(num_rows)]
         # remove the header_indices
         # TODO this could be made O(n)
-        table._df.insert(num_columns, 'is_projecting_row', is_projecting)
+        # table._df.insert(num_columns, 'is_projecting_row', is_projecting)
         is_projecting = [x for i, x in enumerate(is_projecting) if i not in header_indices]
         table._projecting_indices = [i for i, x in enumerate(is_projecting) if x]
     
