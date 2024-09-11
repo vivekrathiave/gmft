@@ -632,15 +632,20 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
     for i in range(num_rows):
         if i > k:
             if table_array_projecting[i, 0]:
+                is_highlighted = False
                 t_bbox = table_array_bbox[i, 0]
                 if i < num_rows - 1 and t_bbox is not None:
                     indentation_level = 1
                     indentation_string = '-' * indentation_level
                     for j in range(i + 1, num_rows):
+                        print(table_array[j, 0], table_array_bbox[j, 0], sep, t_bbox)
                         if table_array_projecting[j, 0]:
-                            if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
+                            if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep*indentation_level:
                                 k = j
                                 table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
+                                if not is_highlighted:
+                                    table_array[i, 0] = f"**{table_array[i, 0]}**"
+                                    is_highlighted = True
                                 if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
                                     indentation_level += 1
                                     indentation_string = '-' * indentation_level
@@ -649,12 +654,16 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                                 sep = sep*sep_factor
                                 break
                         else:
-                            if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep:
+                            if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep*indentation_level:
                                 k = j
-                                sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor
+                                sep = (table_array_bbox[j, 0][0] - t_bbox[0]) * sep_factor / indentation_level
+                                if not is_highlighted:
+                                    table_array[i, 0] = f"**{table_array[i, 0]}**"
+                                    is_highlighted = True
                                 table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
             elif i < num_rows - 1 and table_array_bbox[i, 0] is not None and table_array_bbox[i + 1, 0] is not None and table_array_bbox[i, 0][0] + sep < table_array_bbox[i + 1, 0][0]:
                 indentation_string = '-' * indentation_level
+                is_highlighted = False 
                 sep = table_array_bbox[i + 1, 0][0] - table_array_bbox[i, 0][0]
                 for j in range(i + 1, num_rows):
                     if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > table_array_bbox[i, 0][0] + sep * sep_factor:
@@ -663,6 +672,9 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                             indentation_string = '-' * indentation_level
                         else:
                             indentation_string = '-' * indentation_level
+                        if not is_highlighted:
+                                    table_array[i, 0] = f"**{table_array[i, 0]}**"
+                                    is_highlighted = True
                         table_array[j, 0] = f"{indentation_string} {table_array[j, 0]}"
                         k = j
                     else:
@@ -914,7 +926,7 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
         is_projecting = [x in projecting_indices for x in range(num_rows)]
         # remove the header_indices
         # TODO this could be made O(n)
-        # table._df.insert(num_columns, 'is_projecting_row', is_projecting)
+        table._df.insert(num_columns, 'is_projecting_row', is_projecting)
         is_projecting = [x for i, x in enumerate(is_projecting) if i not in header_indices]
         table._projecting_indices = [i for i, x in enumerate(is_projecting) if x]
     
