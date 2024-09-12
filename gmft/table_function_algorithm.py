@@ -638,7 +638,7 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                     indentation_level = 1
                     indentation_string = '-' * indentation_level
                     for j in range(i + 1, num_rows):
-                        print(table_array[j, 0], table_array_bbox[j, 0], sep, t_bbox)
+                        #print(table_array[j, 0], table_array_bbox[j, 0], sep, t_bbox)
                         if table_array_projecting[j, 0]:
                             if j < num_rows - 1 and table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > t_bbox[0] + sep*indentation_level:
                                 k = j
@@ -846,11 +846,12 @@ def extract_to_df(table: TATRFormattedTable, config: TATRFormatConfig=None):
     # we must divide by 2, because a cell is counted twice by the row + column
     total_area = (total_row_area + total_column_area) / 2
     
-    if total_area > (1 + config.total_overlap_reject_threshold) * table_area:
-        # this shouldn't really happen anymore with NMS
-        raise ValueError(f"The identified boxes have significant overlap: {total_area / table_area - 1:.2%} of area is overlapping (Max is {config.total_overlap_reject_threshold:.2%})")
+    # don't fail. False table detection causing this is a common issue
+    # if total_area > (1 + config.total_overlap_reject_threshold) * table_area:
+    #     # this shouldn't really happen anymore with NMS
+    #     raise ValueError(f"The identified boxes have significant overlap: {total_area / table_area - 1:.2%} of area is overlapping (Max is {config.total_overlap_reject_threshold:.2%})")
     
-    elif total_area > (1 + config.total_overlap_warn_threshold) * table_area:
+    if total_area > (1 + config.total_overlap_warn_threshold) * table_area:
         outliers['high overlap'] = (total_area / table_area - 1)
     
         
