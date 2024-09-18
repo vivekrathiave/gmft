@@ -636,7 +636,7 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                 t_bbox = table_array_bbox[i, 0]
                 if i < num_rows - 1 and t_bbox is not None:
                     indentation_level = 1
-                    indentation_string = '-' * indentation_level
+                    indentation_string = '>' * indentation_level
                     for j in range(i + 1, num_rows):
                         #print(table_array[j, 0], table_array_bbox[j, 0], sep, t_bbox)
                         if table_array_projecting[j, 0]:
@@ -648,7 +648,7 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                                     is_highlighted = True
                                 if table_array_bbox[j + 1, 0][0] - t_bbox[0] > sep * 2:
                                     indentation_level += 1
-                                    indentation_string = '-' * indentation_level
+                                    indentation_string = '>' * indentation_level
                             else:
                                 indentation_level = 1
                                 sep = sep*sep_factor
@@ -669,9 +669,9 @@ def indent_cells(table_array, table_array_projecting, table_array_bbox):
                     if table_array_bbox[j, 0] is not None and table_array_bbox[j, 0][0] > table_array_bbox[i, 0][0] + sep * sep_factor:
                         if table_array_bbox[j, 0][0] - table_array_bbox[i, 0][0] > sep * sep_factor * 2:
                             indentation_level += 1
-                            indentation_string = '-' * indentation_level
+                            indentation_string = '>' * indentation_level
                         else:
-                            indentation_string = '-' * indentation_level
+                            indentation_string = '>' * indentation_level
                         if not is_highlighted:
                                     table_array[i, 0] = f"**{table_array[i, 0]}**"
                                     is_highlighted = True
