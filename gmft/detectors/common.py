@@ -1,11 +1,9 @@
 """
 Module containing methods of detecting tables from whole pdf pages.
 
-Whenever possible, classes (like :class:`TableDetector`) should be imported from the top-level module, not from this module,
-as the exact paths may change in future versions.
 
 Example:
-    >>> from gmft import TableDetector
+    >>> from gmft.auto import AutoTableDetector
 """
 
 from abc import ABC, abstractmethod
@@ -13,9 +11,9 @@ from abc import ABC, abstractmethod
 from typing import Generator, Generic, TypeVar, Union
 import PIL.Image
 from PIL.Image import Image as PILImage
+from PIL import ImageOps # necessary to call PIL.ImageOps later
 
 import numpy as np
-import torch
 from gmft.common import Rect
 from gmft.pdf_bindings.common import BasePage, ImageOnlyPage
 from gmft.table_captioning import _find_captions
@@ -51,7 +49,7 @@ def position_words(words: Generator[tuple[int, int, int, int, str], None, None],
 class CroppedTable:
     """
     A pdf selection, cropped to include just a table. 
-    Created by :class:`~gmft.TableDetector`.
+    Created by :class:`.BaseDetector`.
     """
     _img: PILImage
     _img_dpi: int
@@ -59,7 +57,7 @@ class CroppedTable:
     _img_margin: tuple[int, int, int, int]
     _word_height: float
     _captions: list[str]
-    def __init__(self, page: BasePage, bbox: tuple[int, int, int, int] | Rect, confidence_score: float, label=0):
+    def __init__(self, page: BasePage, bbox: Union[tuple[int, int, int, int], Rect], confidence_score: float=1.0, label=0):
         """
         Construct a CroppedTable object.
         
@@ -85,7 +83,7 @@ class CroppedTable:
         self._word_height = None
         self._captions = None
     
-    def image(self, dpi: int = None, padding: str | tuple[int, int, int, int]=None, margin: str | tuple[int, int, int, int]=None) -> PILImage:
+    def image(self, dpi: int = None, padding: Union[str, tuple[int, int, int, int], None]=None, margin: Union[str, tuple[int, int, int, int]]=None) -> PILImage:
         """
         Return the image of the cropped table.
         
@@ -193,7 +191,7 @@ class CroppedTable:
         
         # actually no - use the median
         if word_heights:
-            self._word_height = 0.95 * np.median(word_heights)
+            self._word_height = 0.95 * float(np.median(word_heights)) # convert np.float64 to float for consistency
             assert self._word_height > 0
         else: 
             self._word_height = np.nan # empty
@@ -231,7 +229,8 @@ class CroppedTable:
             confidences += [0.9] * len(text_positions)
             labels += [-1] * len(text_positions)
             bboxes += text_positions
-        return plot_results_unwr(img, confidence=confidences, labels=labels, boxes=bboxes, id2label=None, **kwargs)
+        return plot_results_unwr(img, confidence=confidences, labels=labels, boxes=bboxes, id2label=None, 
+                                 return_img=True, **kwargs)
     
     def to_dict(self):
         obj = {
@@ -246,7 +245,7 @@ class CroppedTable:
         return obj
     
     @staticmethod
-    def from_dict(d: dict, page: BasePage):
+    def from_dict(d: dict, page: BasePage) -> Union['CroppedTable', 'RotatedCroppedTable']:
         """
         Deserialize a CroppedTable object from dict.
         
@@ -278,7 +277,7 @@ class CroppedTable:
     @staticmethod
     def from_image_only(img: PILImage) -> 'CroppedTable':
         """
-        Create a :class:`~gmft.table_detection.CroppedTable` object from an image only.
+        Create a :class:`.CroppedTable` object from an image only.
         
         :param img: PIL image
         :return: CroppedTable object
@@ -294,6 +293,14 @@ class CroppedTable:
     @property
     def bbox(self):
         return self.rect.bbox
+    
+    @property
+    def width(self):
+        return self.rect.width
+
+    @property
+    def height(self):
+        return self.rect.height
 
 
     
@@ -313,6 +320,12 @@ class BaseDetector(ABC, Generic[ConfigT]):
         :return: list of CroppedTable objects
         """
         pass
+    
+    def detect(self, page: BasePage, config_overrides: ConfigT=None, **kwargs) -> list[CroppedTable]:
+        """
+        Alias for :meth:`extract`.
+        """
+        return self.extract(page, config_overrides, **kwargs)
 
 
 class RotatedCroppedTable(CroppedTable):
@@ -344,8 +357,8 @@ class RotatedCroppedTable(CroppedTable):
             raise ValueError("Only 0, 90, 180, 270 are supported.")
         self.angle = angle
         
-    def image(self, dpi: int = None, padding: str | tuple[int, int, int, int]=None, 
-              margin: str | tuple[int, int, int, int]=None, **kwargs) -> PILImage:
+    def image(self, dpi: int = None, padding: Union[str, tuple[int, int, int, int]]=None, 
+              margin: Union[str, tuple[int, int, int, int]]=None, **kwargs) -> PILImage:
         """
         Return the image of the cropped table.
         
@@ -397,7 +410,7 @@ class RotatedCroppedTable(CroppedTable):
     @staticmethod
     def from_dict(d: dict, page: BasePage) -> Union[CroppedTable, 'RotatedCroppedTable']:
         """
-        Create a :class:`~gmft.table_detection.RotatedCroppedTable` object from dict.
+        Create a :class:`.RotatedCroppedTable` object from dict.
         """
         if 'angle' not in d:
             return CroppedTable.from_dict(d, page)
@@ -411,3 +424,15 @@ class RotatedCroppedTable(CroppedTable):
     #     """
     #     img = self.page.get_image()
     #     plot_results_unwr(img, [self.confidence_score], [self.label], [self.bbox], self.angle, **kwargs)
+
+    @property
+    def width(self):
+        if self.angle == 90 or self.angle == 270:
+            return self.rect.height
+        return self.rect.width
+
+    @property
+    def height(self):
+        if self.angle == 90 or self.angle == 270:
+            return self.rect.width
+        return self.rect.height

@@ -35,11 +35,24 @@ class BasePage(ABC):
         """
         raise NotImplementedError
     
-    def _get_positions_and_text_and_lines(self) -> Generator[tuple[float, float, float, float, str, int, int, int], None, None]:
+    def _get_positions_and_text_and_breaks(self) -> Generator[tuple[float, float, float, float, str, int, int, int], None, None]:
         """
         warning: experimental, subject to change
         """
         return _infer_line_breaks(self.get_positions_and_text())
+    
+    def _get_text_with_breaks(self) -> str:
+        """
+        warning: experimental, subject to change
+        """
+        result = ""
+        for x0, y0, x1, y1, text, _, _, wordno in self._get_positions_and_text_and_breaks():
+            if wordno == 0:
+                result += "\n"
+            else:
+                result += ' '
+            result += text
+        return result.lstrip()
 
     
 
@@ -109,6 +122,8 @@ class ImageOnlyPage(BasePage):
 def _infer_line_breaks(generator_in: Generator[tuple[float,float,float,float,str],None,None]):
     """
     warning: experimental
+    
+    won't work for rotated text
     """
     # pass 1: set the line height to the average line height
     all_words = list(generator_in)
@@ -118,14 +133,20 @@ def _infer_line_breaks(generator_in: Generator[tuple[float,float,float,float,str
     if not all_words:
         return
     
-    avg_line_height = np.mean([y1 - y0 for x0, y0, x1, y1, text in all_words]) * 0.8
+    word_heights = [y1 - y0 for x0, y0, x1, y1, text in all_words]
+    if not len(word_heights):
+        avg_line_height = 10
+    else:
+        avg_line_height = np.mean(word_heights) * 0.8
+        # let's keep it sensible
+        avg_line_height = max(avg_line_height, 0.1)
     
     # pass 2: infer line breaks
     line_ctr = 0
     prev_anchor = all_words[0][1]
     word_ctr = 0
     for i, (x0, y0, x1, y1, text) in enumerate(all_words):
-        if y0 - prev_anchor > avg_line_height:
+        if abs(y0 - prev_anchor) > avg_line_height:
             line_ctr += 1
             prev_anchor = y0
             word_ctr = 0

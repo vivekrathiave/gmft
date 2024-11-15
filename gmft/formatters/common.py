@@ -4,17 +4,31 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 from gmft.pdf_bindings.common import BasePage
-from gmft.table_detection import CroppedTable, RotatedCroppedTable
+from gmft.detectors.common import CroppedTable, RotatedCroppedTable
 
 class FormattedTable(RotatedCroppedTable):
     """
     This is a table that is "formatted", which is to say it is functionalized with header and data information through structural analysis.
     Therefore, it can be converted into df, csv, etc.
+    
+    Warning: This class is not meant to be instantiated directly. Use a :class:`.TableFormatter` to convert a :class:`.CroppedTable` to a :class:`.FormattedTable`.
     """
     
     
     def __init__(self, cropped_table: CroppedTable, df: pd.DataFrame=None):
         self._df = df
+        
+        if cropped_table is None:
+            # this is a tough position, but assume that 
+            # the user will handle CroppedTable.__init__ themselves
+            # and that they know what they are doing (trying to subclass FormattedTable)
+            self._img = None
+            self._img_dpi = None
+            self._img_padding = None
+            self._img_margin = None
+            self._word_height = None
+            self._captions = None
+            return
         
         # create shallow copy
         if 'angle' in cropped_table.__dict__:
@@ -41,10 +55,17 @@ class FormattedTable(RotatedCroppedTable):
     
     
     
-    def df(self, recalculate=False):
+    def df(self, recalculate=False, config_overrides=None) -> pd.DataFrame:
         """
         Return the table as a pandas dataframe.
         :param recalculate: By default, a cached dataframe is returned.
+            Note that it is preferred to explicitly call recompute().
+        """
+        return self._df
+    
+    def recompute(self, config=None) -> pd.DataFrame:
+        """
+        Recompute the internal dataframe.
         """
         return self._df
     
@@ -53,7 +74,8 @@ class FormattedTable(RotatedCroppedTable):
         """
         Visualize the table.
         """
-        raise NotImplementedError
+        # raise NotImplementedError
+        return self.image()
     
     @abstractmethod
     def to_dict(self):
@@ -73,9 +95,9 @@ class FormattedTable(RotatedCroppedTable):
 
 
 
-class TableFormatter(ABC):
+class BaseFormatter(ABC):
     """
-    Abstract class for converting a :class:`~gmft.CroppedTable` to a :class:`~gmft.FormattedTable`.
+    Abstract class for converting a :class:`.CroppedTable` to a :class:`.FormattedTable`.
     Allows export to csv, df, etc.
     """
     
@@ -83,9 +105,19 @@ class TableFormatter(ABC):
     def extract(self, table: CroppedTable) -> FormattedTable:
         """
         Extract the data from the table.
-        Produces a :class:`~gmft.FormattedTable` instance, from which data can be exported in csv, html, etc.
+        Produces a :class:`.FormattedTable` instance, from which data can be exported in csv, html, etc.
         """
         raise NotImplementedError
+    
+    
+    def format(self, table: CroppedTable, **kwargs) -> FormattedTable:
+        """
+        Alias for :meth:`extract`.
+        """
+        return self.extract(table, **kwargs)
+
+class TableFormatter(BaseFormatter):
+    pass
 
 def _normalize_bbox(bbox: tuple[float, float, float, float], used_scale_factor: float, 
                     used_padding: tuple[float, float], used_margin: tuple[float, float] =None):

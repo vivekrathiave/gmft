@@ -1,10 +1,10 @@
 from gmft.pdf_bindings.pdfium import PyPDFium2Document
 from gmft.table_detection import CroppedTable
-from gmft import AutoTableDetector
+from gmft.auto import AutoTableDetector
 
 
 default_detector = None
-def ingest_pdf(pdf_path) -> list[CroppedTable]:
+def ingest_pdf(pdf_path) -> tuple[list[CroppedTable], PyPDFium2Document]:
     """
     Default ingestion function for PDFs. 
     For finer-grained control, modify this function.

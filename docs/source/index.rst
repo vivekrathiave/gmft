@@ -25,7 +25,9 @@ Table of Contents
 
    usage
    config
+   rag
    faq
+   advanced
    gmft_toplevel
 
    

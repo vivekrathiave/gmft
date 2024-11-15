@@ -1,35 +1,25 @@
 """
-Contains aliases for key classes and functions.
+Currently, contains aliases for key classes and functions.
 
-It is recommended to import classes using **this** top-level file. Exact paths may change in future versions.
+Unfortunately, although at one point the ability to import classes from the top level module (ie. `from gmft import AutoTableFormatter`) was encouraged, 
+it is now discouraged and may be removed in future versions. The reason being: importing through the top level module 
+loads the entire library, even when you're using only a small part of it. 
+
+Instead, `gmft.auto` is now encouraged. For example, `from gmft.auto import AutoTableFormatter`.
 """
 
+# See https://stackoverflow.com/q/64979364/6844235
 
-from gmft.table_detection import CroppedTable, TATRTableDetector, TableDetector, TableDetectorConfig
-from gmft.common import Rect
-from gmft.table_function import TATRFormatConfig, TATRFormattedTable, TATRTableFormatter, FormattedTable
-from gmft.pdf_bindings import BasePDFDocument, BasePage
+import sys
 
-class AutoTableFormatter(TATRTableFormatter):
-    """
-    The recommended :class:`~gmft.table_function.TableFormatter`. Currently points to :class:`~gmft.table_function.TATRTableFormatter`.
-    Uses a TableTransformerForObjectDetection for small/medium tables, and a custom algorithm for large tables.
-    
-    Using :meth:`extract`, a :class:`~gmft.table_function.FormattedTable` is produced, which can be exported to csv, df, etc.
-    """
-    pass
+# from gmft.auto import Rect, BasePDFDocument, BasePage, CroppedTable, RotatedCroppedTable, \
+#     TableDetectorConfig, TableDetector, FormattedTable, TATRFormatConfig, TATRFormattedTable, \
+#     TATRTableDetector, TATRTableFormatter, TATRFormatConfig, \
+#     AutoTableFormatter, AutoFormatConfig, AutoTableDetector
 
-class AutoFormatConfig(TATRFormatConfig):
-    """
-    Configuration for the recommended :class:`~gmft.table_function.TableFormatter`. Currently points to :class:`~gmft.table_function.TATRFormatConfig`.
-    """
-    pass
-
-class AutoTableDetector(TATRTableDetector):
-    """
-    The recommended :class:`~gmft.table_detection.TableDetector`. Currently points to :class:`~gmft.table_detection.TATRTableDetector`.
-    Uses TableTransformerForObjectDetection for small/medium tables, and a custom algorithm for large tables.
-    
-    Using :meth:`extract` produces a :class:`~gmft.table_function.FormattedTable`, which can be exported to csv, df, etc.
-    """
-    pass
+# from gmft.__lazy__init__ import *
+from gmft.__future__init__ import *
+# not imported:
+# TATRDetector
+# TATRFormatter
+# TATRFormatterConfig

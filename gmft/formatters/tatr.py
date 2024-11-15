@@ -1,23 +1,23 @@
 
 import copy
+from dataclasses import dataclass, field
+from typing import Union
 
+from gmft._dataclasses import non_defaults_only, with_config
 from gmft.detectors.common import CroppedTable, RotatedCroppedTable
 from gmft.formatters.common import FormattedTable, TableFormatter, _normalize_bbox
 from gmft.pdf_bindings.common import BasePage
 import torch
 
 
-import transformers
-from transformers import AutoImageProcessor, TableTransformerForObjectDetection
-
 from gmft.table_function_algorithm import extract_to_df
 from gmft.table_visualization import plot_results_unwr
 
 
-
+@dataclass
 class TATRFormatConfig:
     """
-    Configuration for :class:`~gmft.TATRTableFormatter`.
+    Configuration for :class:`.TATRTableFormatter`.
     """
     
     # ---- model settings ----
@@ -32,9 +32,9 @@ class TATRFormatConfig:
     
     verbosity: int = 1
     """
-    0: errors only
-    1: print warnings
-    2: print warnings and info
+    0: errors only\n
+    1: print warnings\n
+    2: print warnings and info\n
     3: print warnings, info, and debug
     """
     
@@ -46,7 +46,7 @@ class TATRFormatConfig:
     (having fewer rows than expected merges cells, which is bad).
     """
     
-    cell_required_confidence = {
+    cell_required_confidence: dict = field(default_factory=lambda: {
         0: 0.3, # table
         1: 0.3, # column
         2: 0.3, # row
@@ -54,7 +54,7 @@ class TATRFormatConfig:
         4: 0.5, # projected row header
         5: 0.5, # spanning cell
         6: 99   # no object
-    }
+    })
     """Confidences required (>=) for a row/column feature to be considered good. See TATRFormattedTable.id2label
     
     But low confidences may be better than too high confidence (see formatter_base_threshold)
@@ -64,81 +64,88 @@ class TATRFormatConfig:
     
     # ---- options ----
     
-    remove_null_rows = True 
-    """remove rows with no text"""
+    remove_null_rows: bool = True 
+    """Remove rows with no text."""
     
-    enable_multi_header = False
+    enable_multi_header: bool = False
     """Enable multi-indices in the dataframe.
     If false, then multiple headers will be merged column-wise."""
     
-    semantic_spanning_cells = False
+    semantic_spanning_cells: bool = False
     """
     [Experimental] Enable semantic spanning cells, which often encode hierarchical multi-level indices.
     """
     
-    semantic_hierarchical_left_fill = 'algorithm'
+    semantic_hierarchical_left_fill: Union[str, None] = 'algorithm'
     """
     [Experimental] When semantic spanning cells is enabled, when a left header is detected which might
     represent a group of rows, that same value is reduplicated for each row.
     Possible values: 'algorithm', 'deep', None.
     
-    'algorithm': assumes that the higher-level header is always the first row followed by several empty rows.
-    'deep': merges headers according to the spanning cells detected by the Table Transformer.
+    'algorithm': assumes that the higher-level header is always the first row followed by several empty rows.\n
+    'deep': merges headers according to the spanning cells detected by the Table Transformer.\n
     None: headers are not duplicated.
     """
     
     # ---- large table ----
     
-    large_table_if_n_rows_removed = 8
+    large_table_if_n_rows_removed: int = 8
     """
     If >= n rows are removed due to non-maxima suppression (NMS), then this table is classified as a large table.
     """
     
-    large_table_threshold = 10
-    """with large tables, table transformer struggles with placing too many overlapping rows
-    luckily, with more rows, we have more info on the usual size of text, which we can use to make
-    a guess on the height such that no rows are merged or overlapping
+    large_table_threshold: int = 10
+    """With large tables, table transformer struggles with placing too many overlapping rows. 
+    Luckily, with more rows, we have more info on the usual size of text, which we can use to make 
+    a guess on the height such that no rows are merged or overlapping.
     
-    large table assumption is only applied when (# of rows > large_table_threshold) AND (total overlap > large_table_row_overlap_threshold)
-    set 9999 to disable, set 0 to force large table assumption to run every time"""
-    large_table_row_overlap_threshold = 0.2
+    Large table assumption is only applied when (# of rows > large_table_threshold) AND (total overlap > large_table_row_overlap_threshold). 
+    Set 9999 to disable; set 0 to force large table assumption to run every time."""
     
-    large_table_maximum_rows = 1000
+    large_table_row_overlap_threshold: float = 0.2
+    """With large tables, table transformer struggles with placing too many overlapping rows. 
+    Luckily, with more rows, we have more info on the usual size of text, which we can use to make 
+    a guess on the height such that no rows are merged or overlapping.
+    
+    Large table assumption is only applied when (# of rows > large_table_threshold) AND (total overlap > large_table_row_overlap_threshold). 
+    Set 9999 to disable; set 0 to force large table assumption to run every time."""
+    
+    large_table_maximum_rows: int = 1000
     """If the table predicts a large number of rows, refuse to proceed. Therefore prevent memory issues for super small text."""
     
-    force_large_table_assumption=None
-    """True: force large table assumption to be applied to all tables
-    False: force large table assumption to not be applied to any tables
+    force_large_table_assumption: Union[bool, None]=None
+    """True: force large table assumption to be applied to all tables.\n
+    False: force large table assumption to not be applied to any tables.\n
     None: heuristically apply large table assumption according to threshold and overlap"""
 
     # ---- rejection and warnings ----
 
-    total_overlap_reject_threshold = 0.2
-    """reject if total overlap is > 20% of table area"""
+    total_overlap_reject_threshold: float = 0.9
+    """Reject if total overlap is > 90% of table area."""
     
-    total_overlap_warn_threshold = 0.05
-    """warn if total overlap is > 5% of table area"""
+    total_overlap_warn_threshold: float = 0.1
+    """Warn if total overlap is > 10% of table area."""
     
-    nms_warn_threshold = 5
-    """warn if non maxima suppression removes > 5 rows"""
+    nms_warn_threshold: int = 5
+    """Warn if non maxima suppression removes > 5 rows."""
     
-    iob_reject_threshold = 0.05
-    """reject if iob between textbox and cell is < 5%"""
+    iob_reject_threshold: float = 0.05
+    """Reject if iob between textbox and cell is < 5%."""
 
-    iob_warn_threshold = 0.5
-    """warn if iob between textbox and cell is < 50%"""
+    iob_warn_threshold: float = 0.5
+    """Warn if iob between textbox and cell is < 50%."""
     
     # ---- technical ----
     
-    _nms_overlap_threshold = 0.1
+    _nms_overlap_threshold: float = 0.1
     """Non-maxima suppression: if two rows overlap by > threshold (default: 10%), then the one with the lower confidence is removed.
     A subsequent technique is able to fill in gaps created by NMS."""
     
-    _large_table_merge_distance = 0.6
+    _large_table_merge_distance: float = 0.6
     """In the large_table method, if two means are within (60% * text_height) of each other, then they are merged.
     This may be useful to adjust if text is being split due to subscripts/superscripts."""
     
-    _smallest_supported_text_height = 0.1
+    _smallest_supported_text_height: float = 0.1
     """The smallest supported text height. Text smaller than this height will be ignored. 
     Helps prevent very small text from creating huge arrays under large table assumption."""
     
@@ -175,16 +182,12 @@ class TATRFormatConfig:
     def deduplication_iob_threshold(self, value):
         raise DeprecationWarning("deduplication_iob_threshold is deprecated. See nms_overlap_threshold instead.")
     
-    def __init__(self, torch_device: str = None):
 
-        if torch_device is not None:
-            self.torch_device = torch_device
-    
 
 class TATRFormattedTable(FormattedTable):
     """
     FormattedTable, as seen by a Table Transformer (TATR).
-    See :class:`~gmft.TATRTableFormatter`.
+    See :class:`.TATRTableFormatter`.
     """
     
     _POSSIBLE_ROWS = ['table row', 'table spanning cell', 'table projected row header'] # , 'table column header']
@@ -226,12 +229,9 @@ class TATRFormattedTable(FormattedTable):
     _hier_left_indices: list[int]=None
     
     def __init__(self, cropped_table: CroppedTable, fctn_results: dict, 
-                #  fctn_scale_factor: float, fctn_padding: tuple[int, int, int, int], 
                  config: TATRFormatConfig=None):
         super(TATRFormattedTable, self).__init__(cropped_table)
         self.fctn_results = fctn_results
-        # self.fctn_scale_factor = fctn_scale_factor
-        # self.fctn_padding = tuple(fctn_padding)
         
         if config is None:
             config = TATRFormatConfig()
@@ -246,17 +246,18 @@ class TATRFormattedTable(FormattedTable):
         if recalculate == False and config_overrides is None and self._df is not None: # cache
             return self._df
         
-        if config_overrides is not None:
-            config = copy.deepcopy(self.config)
-            config.__dict__.update(config_overrides.__dict__)
-        else:
-            config = self.config
-        
+        config = with_config(self.config, config_overrides)
+
+        return self.recompute(config=config)
+    
+    def recompute(self, config: TATRFormatConfig):
+        """
+        Recompute the internal dataframe.
+        """
         self._df = extract_to_df(self, config=config)
         return self._df
     
-    
-    def visualize(self, filter=None, dpi=None, padding=None, margin=(10,10,10,10), effective=False, **kwargs):
+    def visualize(self, filter=None, dpi=None, padding=None, margin=(10,10,10,10), effective=False, return_img=True, **kwargs):
         """
         Visualize the table.
         
@@ -265,16 +266,18 @@ class TATRFormattedTable(FormattedTable):
         :param padding: padding around the table. If None, then the padding of the cached image is used.
         :param margin: margin around the table. If None, then the margin of the cached image is used.
         :param effective: if True, visualize the effective rows and columns, which may differ from the table transformer's output.
+        :param return_img: if True, return the image. If False, the matplotlib figure is plotted.
         """
         if dpi is None: # dpi = needed_dpi
             dpi = self._img_dpi
         if dpi is None:
             dpi = 72
-        if self._df is None:
-            self._df = self.df()
+
         scale_by = (dpi / 72)
         
         if effective:
+            if self._df is None:
+                self._df = self.df()
             vis = self.effective_rows + self.effective_columns + self.effective_headers + self.effective_projecting + self.effective_spanning
             boxes = [x['bbox'] for x in vis]
             boxes = [(x * scale_by for x in bbox) for bbox in boxes]
@@ -285,9 +288,6 @@ class TATRFormattedTable(FormattedTable):
             }
         else:
             # transform functionalized coordinates into image coordinates
-            # sf = self.fctn_scale_factor
-            # pdg = self.fctn_padding
-            # boxes = [_normalize_bbox(bbox, used_scale_factor=sf / scale_by, used_padding=pdg) for bbox in self.fctn_results["boxes"]]
             boxes = [(x * scale_by for x in bbox) for bbox in self.fctn_results["boxes"]]
 
             _to_visualize = {
@@ -301,7 +301,7 @@ class TATRFormattedTable(FormattedTable):
         # if self._img is not None:
         true_margin = [x * (dpi / 72) for x in self._img_margin]
         return plot_results_unwr(img, _to_visualize['scores'], _to_visualize['labels'], _to_visualize['boxes'], TATRFormattedTable.id2label, 
-                                 filter=filter, padding=padding, margin=true_margin, **kwargs)
+                                 filter=filter, padding=padding, margin=true_margin, return_img=return_img, **kwargs)
             
     def to_dict(self):
         """
@@ -319,9 +319,7 @@ class TATRFormattedTable(FormattedTable):
         if self._top_header_indices is not None:
             optional['_top_header_indices'] = self._top_header_indices
         return {**parent, **{
-            # 'fctn_scale_factor': self.fctn_scale_factor,
-            # 'fctn_padding': list(self.fctn_padding),
-            'config': self.config.__dict__,
+            'config': non_defaults_only(self.config),
             'outliers': self.outliers,
             'fctn_results': self.fctn_results,
         }, **optional}
@@ -332,17 +330,15 @@ class TATRFormattedTable(FormattedTable):
         Deserialize from dict.
         A page is required partly because of memory management, since having this open a page may cause memory issues.
         """
+        d = copy.deepcopy(d) # don't modify the original dict
         cropped_table = CroppedTable.from_dict(d, page)
         
         if 'fctn_results' not in d:
             raise ValueError("fctn_results not found in dict -- dict may be a CroppedTable but not a TATRFormattedTable.")
         
-        config = TATRFormatConfig()
-        for k, v in d['config'].items():
-            if v is not None and config.__dict__.get(k) != v:
-                setattr(config, k, v)
+        config = TATRFormatConfig(**d['config'])
         
-        results = d['fctn_results']
+        results = d['fctn_results'] # fix shallow copy issue
         if 'fctn_scale_factor' in d or 'scale_factor' in d or 'fctn_padding' in d or 'padding' in d:
             # deprecated: this is for backwards compatibility
             scale_factor = d.get('fctn_scale_factor', d.get('scale_factor', 1))
@@ -359,14 +355,17 @@ class TATRFormattedTable(FormattedTable):
         table.outliers = d.get('outliers', None)
         return table
 
-class TATRTableFormatter(TableFormatter):
+class TATRFormatter(TableFormatter):
     """
     Uses a TableTransformerForObjectDetection for small/medium tables, and a custom algorithm for large tables.
     
-    Using :meth:`extract`, a :class:`~gmft.FormattedTable` is produced, which can be exported to csv, df, etc.
+    Using :meth:`extract`, a :class:`.FormattedTable` is produced, which can be exported to csv, df, etc.
     """
     
     def __init__(self, config: TATRFormatConfig=None):
+        import transformers
+        from transformers import AutoImageProcessor, TableTransformerForObjectDetection
+        
         if config is None:
             config = TATRFormatConfig()
         if not config.warn_uninitialized_weights:
@@ -383,16 +382,13 @@ class TATRTableFormatter(TableFormatter):
         if not config.warn_uninitialized_weights:
             transformers.logging.set_verbosity(previous_verbosity)
     
-    def extract(self, table: CroppedTable, dpi=144, padding='auto', margin=None, config_overrides=None) -> FormattedTable:
+    def extract(self, table: CroppedTable, dpi=144, padding='auto', margin=None, config_overrides=None) -> TATRFormattedTable:
         """
         Extract the data from the table.
         """
         
-        if config_overrides is not None:
-            config = copy.deepcopy(self.config)
-            config.__dict__.update(config_overrides.__dict__)
-        else:
-            config = self.config
+        config = with_config(self.config, config_overrides)
+
         
         image = table.image(dpi=dpi, padding=padding, margin=margin) # (20, 20, 20, 20)
         padding = table._img_padding
@@ -431,6 +427,7 @@ class TATRTableFormatter(TableFormatter):
         return formatted_table
             
 
-
+# legacy aliases from the nonstandard days
+TATRTableFormatter = TATRFormatter
     
         
