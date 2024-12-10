@@ -6,16 +6,15 @@ from typing import Generator, Union
 
 import numpy as np
 import pandas as pd
-
+from gmft.algo.histogram import IntervalHistogram
 from gmft._dataclasses import removed_property, non_defaults_only, with_config
 from gmft.algo.dividers import fill_using_true_partitions, _find_all_intervals_for_interval, _ioa, get_good_between_dividers
 from gmft.detectors.common import CroppedTable, RotatedCroppedTable
 from gmft.formatters.common import FormattedTable, TableFormatter, _normalize_bbox
-from gmft.formatters.histogram import HistogramConfig, HistogramFormattedTable
+from gmft.formatters.histogram import HistogramConfig, HistogramFormattedTable, HistogramFormatter
 from gmft.pdf_bindings.common import BasePage
 
-
-from gmft.table_function_algorithm import _iob, _is_within_header, _non_maxima_suppression, _semantic_spanning_fill, _split_spanning_cells, extract_to_df
+from gmft.table_function_algorithm import _iob, _is_within_header, _non_maxima_suppression, _semantic_spanning_fill, _split_spanning_cells, extract_to_df, _fill_using_partitions
 from gmft.table_visualization import plot_results_unwr, plot_shaded_boxes
 
 import torch
@@ -146,8 +145,8 @@ class DITRFormatConfig(HistogramConfig):
     
     # ---- technical ----
     
-    _nms_overlap_threshold: float = 0.1
-    _nms_overlap_threshold_larger: float = 0.5
+    _nms_overlap_threshold: float = 0.15
+    _nms_overlap_threshold_larger: float = 0.15
     
     @removed_property("Large table approach ({name}) is not used for the DITR model.")
     def _large_table_merge_distance(self):
@@ -253,25 +252,38 @@ class DITRFormattedTable(HistogramFormattedTable):
         # bboxes = self.fctn_results['boxes']
         tbl_width = self.width # adjust for rotations too
         tbl_height = self.height
+        # create a dictionary for the labels and their colors
+        i2dict = {}
         
         labels = []
         bboxes = []
         for x0, x1 in self.irvl_results['col_dividers']:
             bboxes.append([x0, 0, x1, tbl_height])
             labels.append(1)
+            i2dict[1] = 'black'
         for y0, y1 in self.irvl_results['row_dividers']:
             bboxes.append([0, y0, tbl_width, y1])
             labels.append(2)
+            i2dict[2] = 'green'
         for x0, y0, x1, y1 in self.effective_headers:
             bboxes.append([x0, y0, x1, y1])
             labels.append(3)
+            i2dict[3] = 'orange'
         for x0, y0, x1, y1 in self.effective_projecting:
             bboxes.append([x0, y0, x1, y1])
             labels.append(4)
+            i2dict[4] = 'blue'
         for x0, y0, x1, y1 in self.effective_spanning:
             bboxes.append([x0, y0, x1, y1])
             labels.append(5)
-        return plot_shaded_boxes(img, labels=labels, boxes=bboxes, **kwargs)
+            i2dict[5] = 'purple'
+        
+        # for x0, y0, x1, y1,_ in self.text_positions(remove_table_offset=True):
+        #     bboxes.append([x0, y0, x1, y1])
+        #     labels.append(6)
+        #     i2dict[6] = 'red'
+
+        return plot_shaded_boxes(img, labels=labels, id2color=i2dict,  boxes=bboxes, **kwargs)
             
     def to_dict(self):
         """
@@ -400,7 +412,7 @@ class DITRLabel:
 
   
 
-def _determine_headers_and_projecting(row_intervals, sorted_headers, sorted_projecting, iob_threshold=0.7):
+def _determine_headers_and_projecting(row_intervals, sorted_headers, sorted_projecting, iob_threshold=0.5):
     """
     Splits the sorted_horizontals into rows, headers, and projecting rows. 
     Then, identifies a list of indices of headers and projecting rows.
@@ -418,13 +430,20 @@ def _determine_headers_and_projecting(row_intervals, sorted_headers, sorted_proj
     # consider = [table_bounds[1]] + row_dividers + [table_bounds[3]]
     # for i in range(len(consider) - 1):
         # row_y_interval = (consider[i], consider[i+1])
+    last_header_y1 = 0
     for i, row_y_interval in enumerate(row_intervals):
         # probably don't need to binary-ify, because usually the # of headers is 1
         for _, header_y0, _, header_y1 in sorted_headers:
             if _ioa(row_y_interval, (header_y0, header_y1)) > iob_threshold:
                 header_indices.append(i)
+                if header_y1 > last_header_y1:
+                    last_header_y1 = header_y1
         else:
             for _, proj_y0, _, proj_y1 in sorted_projecting:
+                # if proj_y0 - last_header_y1 < iob_threshold:
+                #     header_indices.append(i)
+                #     if proj_y1 > last_header_y1:
+                #         last_header_y1 = proj_y1
                 if _ioa(row_y_interval, (proj_y0, proj_y1)) > iob_threshold:
                     projecting_indices.append(i)
                     break
@@ -476,20 +495,25 @@ def proportion_fctn_results(fctn_results: dict, config: DITRFormatConfig) -> \
     top_headers = []
     projected = []
     spanning_cells = []
+    sorted_rows = []
+    sorted_columns = []
     for confidence, label, bbox in zip(fctn_results["scores"], fctn_results["labels"], fctn_results["boxes"]):
         if confidence < config.cell_required_confidence[label]: # remove the unconfident
             continue
         if label == DITRLabel.row_divider:
             row_divider_boxes.append((*bbox, confidence))
+            sorted_rows.append({'confidence': confidence, 'label': label, 'bbox': bbox})
         elif label == DITRLabel.column_divider:
             col_divider_boxes.append((*bbox, confidence))
+            sorted_columns.append({'confidence': confidence, 'label': label, 'bbox': bbox})
         elif label == DITRLabel.top_header:
             top_headers.append(bbox)
         elif label == DITRLabel.projected:
             projected.append(bbox)
         elif label == DITRLabel.spanning:
             spanning_cells.append({'bbox': bbox, 'confidence': confidence})
-    return row_divider_boxes, col_divider_boxes, top_headers, projected, spanning_cells
+
+    return row_divider_boxes, col_divider_boxes, top_headers, projected, spanning_cells,sorted_rows,sorted_columns
 
 def empirical_table_bbox(row_divider_boxes, col_divider_boxes):
     """
@@ -512,29 +536,176 @@ def ditr_fctn_results_to_irvl(fctn_results: dict, table_bounds: tuple[float, flo
         'col_dividers': list of column dividers, of form (x0, x1) (assumed to stretch the height of the table)
     }
     """
+def decide_separator(interval: tuple[float, float], max_width: float, threshold_value: float, check_threshold: bool) -> bool:
+        """
+        Decide whether an interval is a separator.
+        
+        For example, it may be useful to reject vertical separators that are too thin (thinner than a space's length)
+        as not a separator.
+        """
+        if check_threshold:           
+            width = interval[1] - interval[0]
+            return width > threshold_value
+        else:
+            return True
+        
+def find_row_divider_bounding_boxes(bounding_boxes, line_thickness=1):
+    # Step 1: Sort bounding boxes by vertical position (y_min)
+    bounding_boxes.sort(key=lambda box: box[1])
     
+    # Step 2: Create a vertical histogram
+    max_y = int(max(box[3] for box in bounding_boxes))
+
+    histogram = [0] * (max_y + 1)
+    
+    for x_min, y_min, x_max, y_max in bounding_boxes:
+        # Ensure y_min and y_max are integers
+        y_min = int(y_min)
+        y_max = int(y_max)
+        
+        for y in range(y_min, y_max + 1):
+            histogram[y] += 1
+
+    # Step 3: Smooth the histogram
+    smoothed_histogram = smooth_histogram(histogram)
+
+    # Step 4: Find valleys in the histogram (row dividers)
+    row_dividers = find_valleys(smoothed_histogram)
+
+    # Step 5: Compute bounding boxes for row dividers
+    x_min = min(box[0] for box in bounding_boxes)  # Minimum x across all boxes
+    x_max = max(box[2] for box in bounding_boxes)  # Maximum x across all boxes
+    
+    divider_bounding_boxes = []
+    for divider_y in row_dividers:
+        divider_box = (x_min, divider_y, x_max, divider_y + line_thickness)
+        divider_bounding_boxes.append(divider_box)
+
+    return divider_bounding_boxes
+
+# Supporting functions
+def smooth_histogram(histogram):
+    kernel = [1, 2, 1]
+    smoothed = []
+    for i in range(1, len(histogram) - 1):
+        smoothed.append((histogram[i - 1] + 2 * histogram[i] + histogram[i + 1]) / 4)
+    return smoothed
+
+def find_valleys(histogram):
+    valleys = []
+    threshold = min(histogram) + (max(histogram) - min(histogram)) * 0.1
+    for i in range(1, len(histogram) - 1):
+        if histogram[i] < threshold and histogram[i - 1] >= histogram[i] and histogram[i + 1] >= histogram[i]:
+            valleys.append(i)
+    return valleys
 
 
-def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None):
+
+def  get_row_bounds_histogram(text_positions, check_threshold=False):
+    x_histogram = IntervalHistogram()
+    y_histogram = IntervalHistogram()
+    bboxes = []
+    for x0, y0, x1, y1, text in text_positions:
+            # round to 0.05
+            x0 = round(x0, 2)
+            x1 = round(x1, 2)
+            y0 = round(y0, 2)
+            y1 = round(y1, 2)
+            x_histogram.append((x0, x1)) # x bounds are col separators
+            y_histogram.append((y0, y1)) # y bounds are row separators
+            bboxes.append((x0, y0, x1, y1))
+    y_sep_threshold = 0.0
+    y_sep_bounds = list(y_histogram.iter_intervals_below(y_sep_threshold))
+    #y_sep_bounds = [(y0, y1) for x0,y0,x1, y1 in find_row_divider_bounding_boxes(bboxes)]
+    if len(y_sep_bounds)>0:
+        y_sep_max = max([y1 - y0 for y0, y1 in y_sep_bounds], default=None)
+        y_sep_avg = statistics.mean([y1 - y0 for y0, y1 in y_sep_bounds])
+        print(f'Average row separator: {str(y_sep_avg)}')
+        y_sep_bounds_iter1 = [(0,y0,0, y1,0.0) for y0, y1 in y_sep_bounds if decide_separator((y0, y1), y_sep_max, threshold_value= y_sep_avg*0.9, check_threshold=True)]
+        y_sep_bounds_iter2 = [(0,y0,0, y1,0.0) for y0, y1 in y_sep_bounds if decide_separator((y0, y1), y_sep_max, threshold_value = 0, check_threshold=False)]
+        if (len(y_sep_bounds_iter1) > len(y_sep_bounds_iter2)*0.8):
+            return y_sep_bounds_iter1
+        else:
+            return y_sep_bounds_iter2
+    else:
+        return y_sep_bounds
+
+
+def add_missing_row_dividers_histogram(text_positions, row_divider_boxes, sorted_rows):
+    y_sep_bounds = get_row_bounds_histogram(text_positions)
+    y_sep_avg = statistics.mean([y1 - y0 for x0,y0,x1, y1 in y_sep_bounds])
+    prev_y = 0
+    print(f'Average: {str(y_sep_avg)}')
+    for x0, y0, x1, y1, conf in row_divider_boxes:
+        if prev_y > 0:
+            if y0 - prev_y > y_sep_avg:
+                print("Adding missing row dividers")
+                for y0, y1 in _find_all_intervals_for_interval(y_sep_bounds,(prev_y, y0)):
+                    print(y0, y1)
+                    row_divider_boxes.append((x0, y0, x1, y1, conf))
+                    sorted_rows.append({'confidence': conf, 'label': DITRLabel.row_divider, 'bbox': (x0, y0, x1, y1)})
+        prev_y = y1
+    
+    return row_divider_boxes, sorted_rows
+
+def get_good_row_divider_boxes(row_divider_boxes, row_divider_boxes_hist):
+    if(len(row_divider_boxes) == 0 or len(row_divider_boxes_hist) == 0):
+        return row_divider_boxes
+    row_divider_boxes.sort(key=lambda box: (box[1] + box[3]) / 2)
+    row_divider_boxes_hist.sort(key=lambda box: (box[1] + box[3]) / 2)
+    row_divider_lines = [(box[1], box[3]) for box in row_divider_boxes]
+    row_divider_lines_hist = [(box[1], box[3]) for box in row_divider_boxes_hist]
+    avg_row_divider_lines_sep = statistics.mean([y1 - y0 for (y0, y1) in row_divider_lines])
+    print(f'Average row divider lines separation: {avg_row_divider_lines_sep}')
+    #avg_row_divider_lines_sep = statistics.mean([y1 - y0 for y0, y1 in _find_all_intervals_for_interval(row_divider_lines, (row_divider_lines[0][0], row_divider_lines[-1][1]),avg_row_divider_lines_sep*0.5)])
+    avg_row_divder_lines_hist_sep = statistics.mean([y1 - y0 for (y0, y1) in row_divider_lines_hist])
+    print(f'Average row divider lines hist separation: {avg_row_divder_lines_hist_sep}')
+    #avg_row_divder_lines_hist_sep = statistics.mean([y1 - y0 for y0, y1 in _find_all_intervals_for_interval(row_divider_lines_hist, (row_divider_lines_hist[0][0], row_divider_lines_hist[-1][1]),avg_row_divder_lines_hist_sep*0.5)])
+    #print(f'Average row divider lines separation: {avg_row_divider_lines_sep}')
+    #print(f'Average row divider lines hist separation: {avg_row_divder_lines_hist_sep}')
+    hist_index = 0
+    # for row_divider_line_hist in row_divider_lines_hist:
+    #     index = find_nearest_divider(row_divider_lines, row_divider_line_hist) 
+    #     hist_index += 1
+    return row_divider_boxes
+def find_nearest_divider(dividers, target):
     """
-    Return the table as a pandas dataframe.
-    The code is adapted from the TATR authors' inference.py, with a few tweaks.
+    Find the index of the nearest divider to the target.
     """
-    
-    if config is None:
-        config = table.config
-    
-    outliers = {} # store table-wide information about outliers or pecularities
-    
-    results = table.fctn_results
-    row_divider_boxes, col_divider_boxes, top_headers, projected, spanning_cells = proportion_fctn_results(results, config)
+    if len(dividers) == 0:
+        return None
+    return min(range(len(dividers)), key=lambda i: abs(dividers[i] - target))
 
-    # Phase I: Separating lines
-    
+def compute_table_array(config, table, top_headers, row_divider_boxes, col_divider_boxes, sorted_rows, sorted_columns, projected):
+    fixed_table_bounds = (0, 0, table.width, table.height) # adjust for rotations too
     # 2a. sort by ymean, xmean
     row_divider_boxes.sort(key=lambda box: (box[1] + box[3]) / 2)
     col_divider_boxes.sort(key=lambda box: (box[0] + box[3]) / 2)
+    sorted_rows.sort(key=lambda box: (box['bbox'][1] + box['bbox'][3]) / 2)
+    sorted_columns.sort(key=lambda box: (box['bbox'][0] + box['bbox'][3]) / 2)
+    
+    #row_divider_boxes, sorted_rows = add_missing_row_dividers_histogram(table.text_positions(remove_table_offset=True), row_divider_boxes, sorted_rows)
+    
+    row_divider_boxes_hist = get_row_bounds_histogram(table.text_positions(remove_table_offset=True))
+    print(len(row_divider_boxes_hist))
+    print(len(row_divider_boxes)*0.95)
+    #get_good_row_divider_boxes(row_divider_boxes, row_divider_boxes_hist)
+    row_divider_boxes.sort(key=lambda box: (box[1] + box[3]) / 2)
+    row_divider_intervals = [(y0, y1) for _, y0, _, y1, _ in row_divider_boxes]
+    good_row_intervals = get_good_between_dividers(row_divider_intervals, fixed_table_bounds[1], fixed_table_bounds[3], add_inverted=False) 
+    print(len(good_row_intervals)*0.95)
+    if len(row_divider_boxes_hist) >= len(good_row_intervals)*0.95:
+        row_divider_boxes = row_divider_boxes_hist
+        sorted_rows = [{'confidence': 0.91, 'label': DITRLabel.row_divider, 'bbox': (x0, y0, x1, y1)} for x0, y0, x1, y1, conf in row_divider_boxes_hist]
 
+
+    row_divider_boxes.sort(key=lambda box: (box[1] + box[3]) / 2)
+    col_divider_boxes.sort(key=lambda box: (box[0] + box[3]) / 2)
+    sorted_rows.sort(key=lambda box: (box['bbox'][1] + box['bbox'][3]) / 2)
+    sorted_columns.sort(key=lambda box: (box['bbox'][0] + box['bbox'][3]) / 2)
+
+
+    proj_divider_boxes= sorted(projected, key=lambda box: (box[1] + box[3]) / 2)
     # apply nms
     _non_maxima_suppression_t(row_divider_boxes, overlap_threshold=config._nms_overlap_threshold)
     _non_maxima_suppression_t(col_divider_boxes, overlap_threshold=config._nms_overlap_threshold)
@@ -544,23 +715,78 @@ def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None)
 
     row_divider_intervals = [(y0, y1) for _, y0, _, y1, _ in row_divider_boxes]
     col_divider_intervals = [(x0, x1) for x0, _, x1, _, _ in col_divider_boxes]
+    #proj_divider_intervals = [(y0 + y1) / 2 for _, y0, _, y1 in proj_divider_boxes]
     table.irvl_results = {
         'row_dividers': row_divider_intervals,
         'col_dividers': col_divider_intervals
     }
+
+     # table_bounds = table.bbox # empirical_table_bbox(row_divider_boxes, col_divider_boxes)
+    
+    good_row_intervals = get_good_between_dividers(row_divider_intervals, fixed_table_bounds[1], fixed_table_bounds[3], add_inverted=True) 
+    print(f"Good row intervals: {len(good_row_intervals)}")
+    header_indices, projecting_indices = _determine_headers_and_projecting(good_row_intervals, top_headers, projected)
+
+    table_array = fill_using_true_partitions(table.text_positions(remove_table_offset=True), 
+                                        row_dividers=row_dividers, column_dividers=col_dividers,
+                                        table_bounds=fixed_table_bounds, projecting_indices=projecting_indices)
+    
+    good_row_intervals = get_good_between_dividers(row_divider_intervals, fixed_table_bounds[1], fixed_table_bounds[3], add_inverted=True) 
+    good_column_intervals = get_good_between_dividers(col_divider_intervals, fixed_table_bounds[0], fixed_table_bounds[2], add_inverted=True)
+
+
+
+
+    return table_array, good_row_intervals, good_column_intervals, row_dividers, col_dividers
+
+    
+def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None):
+
+
+    if config is None:
+        config = table.config
+    
+    outliers = {} # store table-wide information about outliers or pecularities
+    
+    results = table.fctn_results
+    row_divider_boxes, col_divider_boxes, top_headers, projected, spanning_cells, sorted_rows,sorted_columns = proportion_fctn_results(results, config)
+
+    
+
+    print(projected)
+    # Phase I: Separating lines
+    
+
     table.effective_headers = top_headers
     table.effective_projecting = projected
     table.effective_spanning = [span['bbox'] for span in spanning_cells]
 
 
-    # table_bounds = table.bbox # empirical_table_bbox(row_divider_boxes, col_divider_boxes)
-    fixed_table_bounds = (0, 0, table.width, table.height) # adjust for rotations too
+   
     
+    # Phase II: Rowspan and Colspan.
+    
+    # note that row intervals are not used to place text, 
+    # but rather for functional analysis to determine which rows
+    # are headers, projecting, spanning, etc.
 
-    table_array = fill_using_true_partitions(table.text_positions(remove_table_offset=True), 
-                                        row_dividers=row_dividers, column_dividers=col_dividers,
-                                        table_bounds=fixed_table_bounds)
-        
+    # need to add inverted to make sense of header_indices
+    table_array, good_row_intervals, good_column_intervals, row_dividers, col_dividers = compute_table_array(config, table,top_headers, row_divider_boxes, col_divider_boxes, sorted_rows, sorted_columns, projected)    
+    
+    # find indices of key rows
+    header_indices, projecting_indices = _determine_headers_and_projecting(good_row_intervals, top_headers, projected)
+
+
+
+    
+    row_means = None
+
+
+
+    # if large_table_guess:
+    #     row_means = [[] for _ in range(len(sorted_rows))]
+    # table_array = _fill_using_partitions(table.text_positions(remove_table_offset=True), config ,sorted_rows , sorted_columns, proj_divider_boxes, outliers=outliers, row_means=row_means)
+    # print(table_array)
     # delete empty rows
     if config.remove_null_rows:
         empty_rows = [n for n in range(len(row_dividers)+1) if all(x is None for x in table_array[n, :])]
@@ -571,19 +797,7 @@ def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None)
     num_rows = len(row_dividers) + 1
     num_columns = len(col_dividers) + 1
     
-    # Phase II: Rowspan and Colspan.
-    
-    # note that row intervals are not used to place text, 
-    # but rather for functional analysis to determine which rows
-    # are headers, projecting, spanning, etc.
 
-    # need to add inverted to make sense of header_indices
-
-    good_row_intervals = get_good_between_dividers(row_divider_intervals, fixed_table_bounds[1], fixed_table_bounds[3], add_inverted=True) 
-    good_column_intervals = get_good_between_dividers(col_divider_intervals, fixed_table_bounds[0], fixed_table_bounds[2], add_inverted=True)
-
-    # find indices of key rows
-    header_indices, projecting_indices = _determine_headers_and_projecting(good_row_intervals, top_headers, projected)
 
     if empty_rows:
         header_indices = [i for i in header_indices if i not in empty_rows]
@@ -591,7 +805,7 @@ def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None)
 
     # semantic spanning fill
     if config.semantic_spanning_cells:
-
+        print(spanning_cells)
         # TODO probably not worth it to duplicate the code
         old_rows = [(None, y0, None, y1) for y0, y1 in good_row_intervals]
         old_columns = [(x0, None, x1, None) for x0, x1 in good_column_intervals]
