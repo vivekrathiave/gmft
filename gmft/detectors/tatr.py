@@ -6,7 +6,7 @@ from gmft.detectors.common import BaseDetector, CroppedTable, RotatedCroppedTabl
 
 from gmft.pdf_bindings.common import BasePage
 
-
+from IPython.display import Image, display
 @dataclass
 class TATRDetectorConfig:
     """
@@ -14,9 +14,9 @@ class TATRDetectorConfig:
     
     Specific to the TableTransformerForObjectDetection model. (Do not subclass this.)
     """
-    image_processor_path: str = "microsoft/table-transformer-detection"
+    image_processor_path: str = "apkonsta/table-transformer-detection-ifrs"
     detector_path: str = "microsoft/table-transformer-detection"
-    no_timm: bool = True # huggingface revision
+    no_timm: bool = False # huggingface revision
     warn_uninitialized_weights: bool = False
     torch_device: str = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -96,6 +96,7 @@ class TATRDetector(BaseDetector[TATRDetectorConfig]):
         config = with_config(self.config, config_overrides)
         
         img = page.get_image(72) # use standard dpi = 72, which means we don't need any scaling
+        #display(img)
         encoding = self.image_processor(img, return_tensors="pt").to(self.config.torch_device)
         with torch.no_grad():
             outputs = self.detector(**encoding)

@@ -1,3 +1,5 @@
 from gmft.pdf_bindings.common import BasePage, BasePDFDocument, ImageOnlyPage
 
 from gmft.pdf_bindings.pdfium import PyPDFium2Page, PyPDFium2Document
+
+from gmft.pdf_bindings.doclingparse import DoclingParseV2Document, DoclingParserPDFPage

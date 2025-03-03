@@ -142,20 +142,25 @@ def fill_using_true_partitions(text_positions: Generator[tuple[float, float, flo
                         print(f"ERROR with bbox while calculating space size {str(xmin)} - {str(xmax_p)}")
             else:
                 table_array[row_num, column_num] = text
-        table_array_bbox[row_num][column_num].append((xmin, ymin, xmax, ymax))
+        if len(table_array_bbox[row_num][column_num]) == 0:
+            table_array_bbox[row_num][column_num].append((xmin, ymin, xmax, ymax))
+        else:
+            xmin_p, ymin_p, xmax_p, ymax_p = table_array_bbox[row_num][column_num][0]
+            if(xmin > xmax_p):
+                table_array_bbox[row_num][column_num][0] = (xmin_p, ymin_p, xmax, ymax)
+            
                     
     for i in is_projecting_matches:
         if table_array[i, 0] is None or table_array[i, 0] == '':
             continue
         if(num_columns > 1):
-            if space_size > 0 and len(table_array_bbox[i][1]) > 0 and len(table_array_bbox[i][0]) > 0 and table_array_bbox[i][1][0][0] - table_array_bbox[i][0][-1][2] > 2.5 * space_size:
-                print(space_size)
-                #continue
-        for j in range(1, num_columns):
-            if table_array[i, j] is not None and table_array[i, j] != '':
-                table_array[i, 0] += ' ' + table_array[i, j]
-                table_array[i, j] = '' 
-        table_array[i, 0] = '**' + table_array[i, 0] + '**'
+            if space_size > 0 and len(table_array_bbox[i][1]) > 0 and len(table_array_bbox[i][0]) > 0 and table_array_bbox[i][1][0][0] - table_array_bbox[i][0][0][2] > 2.5 * space_size:
+                continue
+            for j in range(1, num_columns):
+                if table_array[i, j] is not None and table_array[i, j] != '':
+                    table_array[i, 0] += ' ' + table_array[i, j]
+                    table_array[i, j] = '' 
+            table_array[i, 0] = '**' + table_array[i, 0] + '**'
 
     return table_array
 

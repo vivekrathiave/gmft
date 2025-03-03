@@ -421,9 +421,11 @@ def _split_spanning_cells(spanning_cells: list[dict], sorted_headers_bboxes: lis
     """
     sorted_hier_top_headers = []
     sorted_monosemantic_top_headers = []
+    sorted_dual_top_headers = []
     sorted_hier_left_headers = []
+   #print(sorted_headers_bboxes)
     for x in spanning_cells:
-        # if _is_within_header(x['bbox'], sorted_headers): # , _iob=_iob):
+        # if _is_within_header(x['bbox'], sorted_headers): # , _iob=_iob):        
         if _is_within_any_bbox(x['bbox'], sorted_headers_bboxes, _iob=_iob):
             # good - it is located in the header
             # if calculate_semantic_column_headers:
@@ -436,6 +438,9 @@ def _split_spanning_cells(spanning_cells: list[dict], sorted_headers_bboxes: lis
 
             # if it only spans only 1 row, then it is a hierarchical top header
             all_valid_rows = [x for x in all_valid_rows if x in header_indices]
+            #print(all_valid_rows)
+            #print(all_valid_cols)
+
             if len(all_valid_rows) == 1 and len(all_valid_cols) > 1:
                 
                 copy_x = {
@@ -453,6 +458,14 @@ def _split_spanning_cells(spanning_cells: list[dict], sorted_headers_bboxes: lis
                     **x
                 }
                 sorted_monosemantic_top_headers.append(copy_x)
+            else:
+                # this is a dual header
+                copy_x = {
+                    'row_indices': all_valid_rows,
+                    'col_indices': all_valid_cols,
+                    **x
+                }
+                sorted_dual_top_headers.append(copy_x)
             # else:
                 # sorted_hier_top_headers.append(x)
         else:
@@ -480,6 +493,101 @@ def _split_spanning_cells(spanning_cells: list[dict], sorted_headers_bboxes: lis
     sorted_hier_left_headers.sort(key=lambda x: x['bbox'][1])
 
     return sorted_hier_top_headers, sorted_monosemantic_top_headers, sorted_hier_left_headers
+
+def _split_spanning_cells_v2(spanning_cells: list[dict], sorted_headers_bboxes: list[tuple[float, float, float, float]], 
+                          sorted_rows: list[tuple[float, float, float, float]], sorted_columns: list[tuple[float, float, float, float]], 
+                          header_indices: list[int]) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """
+    Split spanning cells into 2 categories: 
+    a) those within column headers (and therefore likely represent info on hierarchical column headers). These reside on top
+    b) those outside (likely represent hierarchical row headers). These reside on the left
+    
+    More specifically, 
+    require hierarchical column headers to span only 1 row, and hierarchical row headers to span only 1 column.
+    
+    :param spanning_cells: list of dictionaries, each with keys 'bbox', 'confidence', 'label'
+    :param sorted_headers: list[tuple[float, float, float, float]] of bboxes (xmin, ymin, xmax, ymax)
+    :param sorted_rows: list[tuple[float, float, float, float]] of bboxes (xmin, ymin, xmax, ymax)
+    :param sorted_columns: list[tuple[float, float, float, float]] of bboxes (xmin, ymin, xmax, ymax)
+    :param header_indices: list[int] of indices of rows that are headers
+    :return spanning cells; hierarchical top headers, monosemantic top headers, hierarchical left headers
+    """
+    sorted_hier_top_headers = []
+    sorted_monosemantic_top_headers = []
+    sorted_dual_top_headers = []
+    sorted_hier_left_headers = []
+    print(sorted_headers_bboxes)
+    print(sorted_rows)
+    for x in spanning_cells:
+        # if _is_within_header(x['bbox'], sorted_headers): # , _iob=_iob):
+        print(x['bbox'])
+        if _is_within_any_bbox(x['bbox'], sorted_headers_bboxes, _iob=_iob):
+            # good - it is located in the header
+            # if calculate_semantic_column_headers:
+            all_valid_rows = _find_all_rows_for_box(sorted_rows, x['bbox'], threshold=0.1)
+            
+            # problem: we actually want to divide by the _column_ width, not the bbox
+            # since the bbox is wider
+            all_valid_cols = _find_all_columns_for_box(sorted_columns, x['bbox'], threshold=0.1, 
+                    _iob=_symmetric_iob_for_columns)
+
+            # if it only spans only 1 row, then it is a hierarchical top header
+            all_valid_rows = [x for x in all_valid_rows if x in header_indices]
+            print(all_valid_rows)
+            print(all_valid_cols)
+
+            if len(all_valid_rows) == 1 and len(all_valid_cols) > 1:
+                
+                copy_x = {
+                    'row_idx': all_valid_rows[0],
+                    'col_indices': all_valid_cols,
+                    **x
+                }
+                sorted_hier_top_headers.append(copy_x)
+            elif len(all_valid_cols) == 1 and len(all_valid_rows) > 1:
+                # this suggests that it is a non-hierarchical column header where the one title
+                # has a newline in it
+                copy_x = {
+                    'col_idx': all_valid_cols[0],
+                    'row_indices': all_valid_rows,
+                    **x
+                }
+                sorted_monosemantic_top_headers.append(copy_x)
+            else:
+                # this is a dual header
+                copy_x = {
+                    'row_indices': all_valid_rows,
+                    'col_indices': all_valid_cols,
+                    **x
+                }
+                sorted_dual_top_headers.append(copy_x)
+            # else:
+                # sorted_hier_top_headers.append(x)
+        else:
+            # if calculate_semantic_row_headers:
+            all_valid_cols = _find_all_columns_for_box(sorted_columns, x['bbox'], threshold=0.2)
+            
+            
+            # further require that it spans only 1 column
+            if len(all_valid_cols) == 1:
+                col_idx = all_valid_cols[0]
+                # bbox may be taller than each row, so use symmetric iob
+                all_valid_rows = _find_all_rows_for_box(sorted_rows, x['bbox'], threshold=0.2, 
+                                        _iob=_symmetric_iob_for_rows)
+                copy_x = {
+                    'col_idx': col_idx,
+                    'row_indices': all_valid_rows,
+                    **x
+                }
+                sorted_hier_left_headers.append(copy_x)
+            # else:
+            #     sorted_hier_left_headers.append(x)
+    
+    # sort hier_left_headers by ascending y0
+    # which is advantageous becauseit makes it closer to algo fill
+    sorted_hier_left_headers.sort(key=lambda x: x['bbox'][1])
+
+    return sorted_hier_top_headers, sorted_monosemantic_top_headers, sorted_hier_left_headers, sorted_dual_top_headers
 
 def _semantic_spanning_fill(table_array, sorted_hier_top_headers: list[dict], sorted_monosemantic_top_headers: list[dict], 
                             sorted_hier_left_headers: list[dict], header_indices: list[int], config):
@@ -512,6 +620,7 @@ def _semantic_spanning_fill(table_array, sorted_hier_top_headers: list[dict], so
             first_invalid_i = len(x['row_indices'])
             for i, row_num in enumerate(x['row_indices']):
                 cell_content = table_array[row_num, col_num]
+                #print(cell_content)
                 if cell_content:
                     # do not overwrite stuff - only allow one cell
                     if last_found is None:
@@ -531,6 +640,7 @@ def _semantic_spanning_fill(table_array, sorted_hier_top_headers: list[dict], so
         for x in perform_changes:
             col_num = x['col_num']
             content = x['content']
+            #print(content)
             for row_num in x['row_nums']:
                 # to be safe, only fill in nones
                 if table_array[row_num, col_num] is None:
@@ -563,6 +673,7 @@ def _semantic_spanning_fill(table_array, sorted_hier_top_headers: list[dict], so
     # Fill hierarchical top headers
     # 1. This time, aggregate
     # 2. then, copy among all cells
+    print(sorted_hier_top_headers)
     for x in sorted_hier_top_headers:
         row_num = x['row_idx']
         content = [] # this time, aggregate, and copy among all cells
@@ -582,6 +693,7 @@ def _semantic_spanning_fill(table_array, sorted_hier_top_headers: list[dict], so
     # 1. This time, aggregate
     # 2. Only write to the bottom-most cell
     # for now, less useful
+    #print(sorted_monosemantic_top_headers)
     for x in sorted_monosemantic_top_headers:
         col_num = x['col_idx']
         content = [] # this time, aggregate, and push it all to the bottom-most cell
@@ -624,7 +736,7 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
     table_array = np.empty([num_rows, num_columns], dtype="object")
     table_array_bbox = np.empty([num_rows, num_columns], dtype="object")
     table_array_projecting = np.empty([num_rows, num_columns], dtype="bool")
-
+    #print(sorted_projecting)
     for xmin, ymin, xmax, ymax, text in text_positions:
         
         textbox = (xmin, ymin, xmax, ymax)
@@ -636,6 +748,7 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
             
         if row_num is None:
             # if we ever do not record a value, something awry happened
+            #print(f"0. Skipped text {text} with iob {row_max_iob}")
             outliers['skipped text'] = outliers.get('skipped text', '') + ' ' + text
             continue
         
@@ -653,6 +766,7 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
         row = sorted_rows[row_num]
         if column_num is None:
             outliers['skipped text'] = outliers.get('skipped text', '') + ' ' + text
+            #print(f"1. Skipped text {text}")
             continue
         column = sorted_columns[column_num]
         
@@ -667,6 +781,7 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
         
         if score < config.iob_reject_threshold: # poor match, like if score < 0.05
             outliers['skipped text'] = outliers.get('skipped text', '') + ' ' + text
+            #print(f"2. Skipped text {text}")
             continue
         
         # the "non-corner assumption" is that if the textbox has been clipped, it was clipped by
@@ -687,22 +802,22 @@ def _fill_using_partitions(text_positions: Generator[tuple[float, float, float, 
         
         if score < config.iob_warn_threshold: # If <0.5 is the best, warn but proceed.
             outliers['lowest iob'] = min(outliers.get('lowest iob', 1), score)
-        
+        projecting_text = ''
         # update the table array, and join with ' ' if exists
         if row_means is not None:
             row_median = (ymax + ymin) / 2
             row_means[row_num].append(row_median)
-
+        if is_projecting_row:
+            column_num = 0
+            projecting_text = 'projecting -> '
         if table_array_bbox[row_num, column_num] is None:
             table_array_bbox[row_num, column_num] = textbox
         table_array_projecting[row_num, column_num] = is_projecting_row
-
         
         if table_array[row_num, column_num] is not None:
             table_array[row_num, column_num] += ' ' + text
         else:
-            table_array[row_num, column_num] = text
-  
+            table_array[row_num, column_num] = projecting_text + text
     table_array = indent_cells(table_array, table_array_projecting, table_array_bbox)
     return table_array
 

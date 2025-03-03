@@ -14,7 +14,7 @@ from gmft.formatters.common import FormattedTable, TableFormatter, _normalize_bb
 from gmft.formatters.histogram import HistogramConfig, HistogramFormattedTable, HistogramFormatter
 from gmft.pdf_bindings.common import BasePage
 
-from gmft.table_function_algorithm import _iob, _is_within_header, _non_maxima_suppression, _semantic_spanning_fill, _split_spanning_cells, extract_to_df, _fill_using_partitions
+from gmft.table_function_algorithm import _iob, _is_within_header, _non_maxima_suppression, _semantic_spanning_fill, _split_spanning_cells_v2, extract_to_df, _fill_using_partitions
 from gmft.table_visualization import plot_results_unwr, plot_shaded_boxes
 
 import torch
@@ -624,7 +624,7 @@ def  get_row_bounds_histogram(text_positions, check_threshold=False):
         y_sep_bounds_iter1 = [(0,y0,0, y1,0.0) for y0, y1 in y_sep_bounds if decide_separator((y0, y1), y_sep_max, threshold_value= y_sep_avg*0.9, check_threshold=True)]
         y_sep_bounds_iter2 = [(0,y0,0, y1,0.0) for y0, y1 in y_sep_bounds if decide_separator((y0, y1), y_sep_max, threshold_value = 0, check_threshold=False)]
         if (len(y_sep_bounds_iter1) > len(y_sep_bounds_iter2)*0.8):
-            return y_sep_bounds_iter1
+            return y_sep_bounds_iter1       
         else:
             return y_sep_bounds_iter2
     else:
@@ -691,10 +691,22 @@ def compute_table_array(config, table, top_headers, row_divider_boxes, col_divid
     print(len(row_divider_boxes)*0.95)
     #get_good_row_divider_boxes(row_divider_boxes, row_divider_boxes_hist)
     row_divider_boxes.sort(key=lambda box: (box[1] + box[3]) / 2)
+    row_divider_boxes_hist.sort(key=lambda box: (box[1] + box[3]) / 2)
     row_divider_intervals = [(y0, y1) for _, y0, _, y1, _ in row_divider_boxes]
     good_row_intervals = get_good_between_dividers(row_divider_intervals, fixed_table_bounds[1], fixed_table_bounds[3], add_inverted=False) 
     print(len(good_row_intervals)*0.95)
     if len(row_divider_boxes_hist) >= len(good_row_intervals)*0.95:
+        if(len(top_headers)>0):
+            temp_row_divider_boxes = []
+            for x0, y0, x1, y1,conf in row_divider_boxes_hist:
+                if y1 < top_headers[0][3]:
+                    # remove this row
+                    row_divider_boxes_hist.remove((x0, y0, x1, y1,conf))
+            for x0, y0, x1, y1, conf in row_divider_boxes:
+                if y1 < top_headers[0][3]:
+                    temp_row_divider_boxes.append((x0, y0, x1, y1, conf))
+            row_divider_boxes_hist = temp_row_divider_boxes + row_divider_boxes_hist
+                
         row_divider_boxes = row_divider_boxes_hist
         sorted_rows = [{'confidence': 0.91, 'label': DITRLabel.row_divider, 'bbox': (x0, y0, x1, y1)} for x0, y0, x1, y1, conf in row_divider_boxes_hist]
 
@@ -810,9 +822,13 @@ def ditr_extract_to_df(table: DITRFormattedTable, config: DITRFormatConfig=None)
         old_rows = [(None, y0, None, y1) for y0, y1 in good_row_intervals]
         old_columns = [(x0, None, x1, None) for x0, x1 in good_column_intervals]
 
-        sorted_hier_top_headers, sorted_monosemantic_top_headers, sorted_hier_left_headers = \
-            _split_spanning_cells(spanning_cells, top_headers, old_rows, old_columns, header_indices)
+        sorted_hier_top_headers, sorted_monosemantic_top_headers, sorted_hier_left_headers, sorted_dual_top_headers = \
+            _split_spanning_cells_v2(spanning_cells, top_headers, old_rows, old_columns, header_indices)
         # since these are inherited from spanning cells, NMS is still necessary
+        print(sorted_hier_top_headers)
+        print(sorted_monosemantic_top_headers)
+        print(sorted_hier_left_headers)
+        print(sorted_dual_top_headers)
         _non_maxima_suppression(sorted_hier_top_headers, overlap_threshold=config._nms_overlap_threshold_larger)
         _non_maxima_suppression(sorted_monosemantic_top_headers, overlap_threshold=config._nms_overlap_threshold_larger)
         _non_maxima_suppression(sorted_hier_left_headers, overlap_threshold=config._nms_overlap_threshold_larger)
