@@ -4,7 +4,7 @@ from typing import Generator
 import PIL
 import pypdfium2 as pdfium
 from docling_core.types.doc import BoundingBox, CoordOrigin
-from docling_parse.docling_parse import pdf_parser_v2
+from docling_parse.pdf_parsers import pdf_parser_v2
 from PIL.Image import Image as PILImage
 from PIL import ImageDraw
 from pypdfium2 import PdfPage

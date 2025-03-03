@@ -3,3 +3,4 @@ transformers[torch]
 matplotlib
 pillow
 pandas
+docling
